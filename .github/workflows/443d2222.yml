@@ -1,0 +1,561 @@
+name: Android Notes App – CI / Codegen
+
+# Run manually or on pushes to main
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  generate-and-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Gradle Wrapper verification
+        run: ./gradlew wrapper --gradle-version 8.5
+
+      - name: Create project files
+        id: generate
+        run: |
+          mkdir -p app/src/main/java/com/example/notes
+          mkdir -p app/src/main/java/com/example/notes/data
+          mkdir -p app/src/main/java/com/example/notes/ui
+          mkdir -p app/src/main/java/com/example/notes/di
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/values-night
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.3.0' apply false
+              id 'com.android.library' version '8.3.0' apply false
+              id 'org.jetbrains.kotlin.android' version '2.0.0' apply false
+              id 'dagger.hilt.android.plugin' version '2.51' apply false
+          }
+          task clean(type: Delete) {
+              delete rootProject.buildDir
+          }
+          EOF
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+              id 'androidx.navigation.safeargs'
+              id 'dagger.hilt.android'
+          }
+
+          android {
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId "com.example.notes"
+                  minSdk 21
+                  targetSdk 35
+                  versionCode 1
+                  versionName "1.0"
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+                  }
+              }
+
+              composeOptions {
+                  kotlinCompilerExtensionVersion "1.6.0"
+              }
+
+              buildFeatures {
+                  compose true
+              }
+          }
+
+          dependencies {
+              implementation "androidx.core:core-ktx:1.13.0"
+              implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.8.0"
+              implementation "androidx.lifecycle:lifecycle-viewmodel-compose:2.8.0"
+              implementation "androidx.activity:activity-compose:1.9.0"
+              implementation "androidx.compose.ui:ui:1.7.0"
+              implementation "androidx.compose.material3:material3:1.3.0"
+              implementation "androidx.compose.ui:ui-tooling-preview:1.7.0"
+              debugImplementation "androidx.compose.ui:ui-tooling:1.7.0"
+
+              implementation "androidx.room:room-runtime:2.6.1"
+              kapt "androidx.room:room-compiler:2.6.1"
+              implementation "androidx.room:room-ktx:2.6.1"
+
+              implementation "com.google.dagger:hilt-android:2.51"
+              kapt "com.google.dagger:hilt-compiler:2.51"
+              implementation "androidx.hilt:hilt-navigation-compose:1.2.0"
+              kapt "androidx.hilt:hilt-compiler:1.2.0"
+          }
+          EOF
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  gradlePluginPortal()
+                  google()
+                  mavenCentral()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "NotesApp"
+          include ':app'
+          EOF
+
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          EOF
+
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest package="com.example.notes" xmlns:android="http://schemas.android.com/apk/res/android">
+              <application
+                  android:allowBackup="true"
+                  android:label="@string/app_name"
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher_round"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.NotesApp">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:showWhenLocked="true"
+                      android:turnScreenOn="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                          <action android:name="android.intent.action.CREATE_NOTE" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > app/src/main/res/values/strings.xml <<'EOF'
+          <resources>
+              <string name="app_name">Notes</string>
+          </resources>
+          EOF
+
+          cat > app/src/main/java/com/example/notes/MainActivity.kt <<'EOF'
+          package com.example.notes
+
+          import android.os.Bundle
+          import androidx.activity.ComponentActivity
+          import androidx.activity.compose.setContent
+          import com.example.notes.ui.NotesApp
+          import com.example.notes.ui.theme.NotesAppTheme
+
+          class MainActivity : ComponentActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContent {
+                      NotesAppTheme {
+                          NotesApp()
+                      }
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/notes/ui/NotesApp.kt <<'EOF'
+          package com.example.notes.ui
+
+          import androidx.compose.foundation.layout.fillMaxSize
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.material3.Surface
+          import androidx.compose.runtime.Composable
+          import androidx.compose.ui.Modifier
+          import androidx.navigation.compose.NavHost
+          import androidx.navigation.compose.composable
+          import androidx.navigation.compose.rememberNavController
+          import com.example.notes.ui.theme.NotesAppTheme
+
+          @Composable
+          fun NotesApp() {
+              val navController = rememberNavController()
+              NotesAppTheme {
+                  Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                      NavHost(navController = navController, startDestination = "notes_list") {
+                          composable("notes_list") { NotesListScreen(navController) }
+                          composable("edit_note/{noteId}") { backStack ->
+                              val noteId = backStack.arguments?.getLong("noteId") ?: -1L
+                              EditNoteScreen(navController, noteId)
+                          }
+                      }
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/notes/ui/NotesListScreen.kt <<'EOF'
+          package com.example.notes.ui
+
+          import androidx.compose.foundation.clickable
+          import androidx.compose.foundation.layout.Box
+          import androidx.compose.foundation.layout.Column
+          import androidx.compose.foundation.layout.fillMaxSize
+          import androidx.compose.foundation.layout.fillMaxWidth
+          import androidx.compose.foundation.layout.padding
+          import androidx.compose.foundation.layout.wrapContentSize
+          import androidx.compose.foundation.lazy.LazyColumn
+          import androidx.compose.foundation.lazy.items
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.Add
+          import androidx.compose.material.icons.filled.Delete
+          import androidx.compose.material3.CenterAlignedTopAppBar
+          import androidx.compose.material3.FloatingActionButton
+          import androidx.compose.material3.Icon
+          import androidx.compose.material3.IconButton
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.material3.Scaffold
+          import androidx.compose.material3.Text
+          import androidx.compose.runtime.Composable
+          import androidx.compose.runtime.collectAsState
+          import androidx.compose.runtime.getValue
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.unit.dp
+          import androidx.hilt.navigation.compose.hiltViewModel
+          import androidx.navigation.NavHostController
+          import com.example.notes.data.Note
+          import com.example.notes.viewmodel.NoteViewModel
+
+          @Composable
+          fun NotesListScreen(navController: NavHostController, viewModel: NoteViewModel = hiltViewModel()) {
+              val notes by viewModel.notes.collectAsState()
+
+              Scaffold(
+                  topBar = { CenterAlignedTopAppBar(title = { Text("Notes") }) },
+                  floatingActionButton = {
+                      FloatingActionButton(onClick = { navController.navigate("edit_note/-1") }) {
+                          Icon(Icons.Default.Add, contentDescription = "Add note")
+                      }
+                  }
+              ) { padding ->
+                  if (notes.isEmpty()) {
+                      Box(
+                          modifier = Modifier.fillMaxSize().padding(padding).wrapContentSize(Alignment.Center)
+                      ) {
+                          Text("No notes yet", style = MaterialTheme.typography.bodyLarge)
+                      }
+                  } else {
+                      LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
+                          items(notes) { note ->
+                              NoteItem(
+                                  note = note,
+                                  onClick = { navController.navigate("edit_note/${note.id}") },
+                                  onDelete = { viewModel.deleteNote(note) }
+                              )
+                          }
+                      }
+                  }
+              }
+          }
+
+          @Composable
+          fun NoteItem(note: Note, onClick: () -> Unit, onDelete: () -> Unit) {
+              Column(
+                  modifier = Modifier
+                      .fillMaxWidth()
+                      .clickable { onClick() }
+                      .padding(16.dp)
+              ) {
+                  Text(note.title, style = MaterialTheme.typography.titleMedium)
+                  Text(note.content, style = MaterialTheme.typography.bodyMedium)
+                  IconButton(onClick = onDelete) {
+                      Icon(Icons.Default.Delete, contentDescription = "Delete")
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/notes/ui/EditNoteScreen.kt <<'EOF'
+          package com.example.notes.ui
+
+          import androidx.compose.foundation.layout.Column
+          import androidx.compose.foundation.layout.fillMaxSize
+          import androidx.compose.foundation.layout.padding
+          import androidx.compose.material3.Button
+          import androidx.compose.material3.OutlinedTextField
+          import androidx.compose.material3.Text
+          import androidx.compose.runtime.Composable
+          import androidx.compose.runtime.getValue
+          import androidx.compose.runtime.mutableStateOf
+          import androidx.compose.runtime.remember
+          import androidx.compose.runtime.setValue
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.unit.dp
+          import androidx.hilt.navigation.compose.hiltViewModel
+          import androidx.navigation.NavHostController
+          import com.example.notes.data.Note
+          import com.example.notes.viewmodel.NoteViewModel
+
+          @Composable
+          fun EditNoteScreen(navController: NavHostController, noteId: Long, viewModel: NoteViewModel = hiltViewModel()) {
+              var title by remember { mutableStateOf("") }
+              var content by remember { mutableStateOf("") }
+
+              Column(
+                  modifier = Modifier.fillMaxSize().padding(16.dp)
+              ) {
+                  OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") })
+                  OutlinedTextField(value = content, onValueChange = { content = it }, label = { Text("Content") })
+                  Button(onClick = {
+                      val note = Note(id = if (noteId == -1L) 0 else noteId, title = title, content = content)
+                      if (noteId == -1L) viewModel.addNote(note) else viewModel.updateNote(note)
+                      navController.popBackStack()
+                  }) {
+                      Text(if (noteId == -1L) "Save" else "Update")
+                  }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/notes/data/Note.kt <<'EOF'
+          package com.example.notes.data
+
+          import androidx.room.Entity
+          import androidx.room.PrimaryKey
+
+          @Entity(tableName = "notes")
+          data class Note(
+              @PrimaryKey(autoGenerate = true) val id: Long = 0,
+              val title: String,
+              val content: String,
+              val timestamp: Long = System.currentTimeMillis()
+          )
+          EOF
+
+          cat > app/src/main/java/com/example/notes/data/NoteDao.kt <<'EOF'
+          package com.example.notes.data
+
+          import androidx.room.Dao
+          import androidx.room.Delete
+          import androidx.room.Insert
+          import androidx.room.Query
+          import androidx.room.Update
+          import kotlinx.coroutines.flow.Flow
+
+          @Dao
+          interface NoteDao {
+              @Query("SELECT * FROM notes ORDER BY timestamp DESC")
+              fun getAllNotes(): Flow<List<Note>>
+
+              @Insert
+              suspend fun insert(note: Note)
+
+              @Update
+              suspend fun update(note: Note)
+
+              @Delete
+              suspend fun delete(note: Note)
+
+              @Query("DELETE FROM notes")
+              suspend fun deleteAll()
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/notes/data/AppDatabase.kt <<'EOF'
+          package com.example.notes.data
+
+          import android.content.Context
+          import androidx.room.Database
+          import androidx.room.Room
+          import androidx.room.RoomDatabase
+
+          @Database(entities = [Note::class], version = 1, exportSchema = false)
+          abstract class AppDatabase : RoomDatabase() {
+              abstract fun noteDao(): NoteDao
+
+              companion object {
+                  @Volatile private var INSTANCE: AppDatabase? = null
+                  fun getInstance(context: Context): AppDatabase =
+                      INSTANCE ?: synchronized(this) {
+                          INSTANCE ?: Room.databaseBuilder(
+                              context.applicationContext,
+                              AppDatabase::class.java,
+                              "notes_db"
+                          ).fallbackToDestructiveMigration().build().also { INSTANCE = it }
+                      }
+              }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/notes/data/NoteRepository.kt <<'EOF'
+          package com.example.notes.data
+
+          import kotlinx.coroutines.flow.Flow
+
+          class NoteRepository(private val noteDao: NoteDao) {
+              val allNotes: Flow<List<Note>> = noteDao.getAllNotes()
+              suspend fun insert(note: Note) = noteDao.insert(note)
+              suspend fun update(note: Note) = noteDao.update(note)
+              suspend fun delete(note: Note) = noteDao.delete(note)
+              suspend fun deleteAll() = noteDao.deleteAll()
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/notes/di/DatabaseModule.kt <<'EOF'
+          package com.example.notes.di
+
+          import android.content.Context
+          import com.example.notes.data.AppDatabase
+          import com.example.notes.data.NoteDao
+          import com.example.notes.data.NoteRepository
+          import dagger.Module
+          import dagger.Provides
+          import dagger.hilt.InstallIn
+          import dagger.hilt.android.qualifiers.ApplicationContext
+          import dagger.hilt.components.SingletonComponent
+          import javax.inject.Singleton
+
+          @Module
+          @InstallIn(SingletonComponent::class)
+          object DatabaseModule {
+              @Provides
+              @Singleton
+              fun provideDatabase(@ApplicationContext context: Context): AppDatabase = AppDatabase.getInstance(context)
+
+              @Provides
+              fun provideNoteDao(db: AppDatabase): NoteDao = db.noteDao()
+
+              @Provides
+              fun provideRepository(dao: NoteDao): NoteRepository = NoteRepository(dao)
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/notes/viewmodel/NoteViewModel.kt <<'EOF'
+          package com.example.notes.viewmodel
+
+          import androidx.lifecycle.ViewModel
+          import androidx.lifecycle.viewModelScope
+          import com.example.notes.data.Note
+          import com.example.notes.data.NoteRepository
+          import dagger.hilt.android.lifecycle.HiltViewModel
+          import kotlinx.coroutines.flow.SharingStarted
+          import kotlinx.coroutines.flow.map
+          import kotlinx.coroutines.flow.stateIn
+          import kotlinx.coroutines.launch
+          import javax.inject.Inject
+
+          @HiltViewModel
+          class NoteViewModel @Inject constructor(private val repository: NoteRepository) : ViewModel() {
+              val notes = repository.allNotes
+                  .map { list -> list.sortedByDescending { it.timestamp } }
+                  .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+              fun addNote(note: Note) = viewModelScope.launch { repository.insert(note) }
+              fun updateNote(note: Note) = viewModelScope.launch { repository.update(note) }
+              fun deleteNote(note: Note) = viewModelScope.launch { repository.delete(note) }
+              fun deleteAll() = viewModelScope.launch { repository.deleteAll() }
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/notes/ui/theme/Theme.kt <<'EOF'
+          package com.example.notes.ui.theme
+
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.material3.lightColorScheme
+          import androidx.compose.runtime.Composable
+
+          private val LightColors = lightColorScheme()
+
+          @Composable
+          fun NotesAppTheme(content: @Composable () -> Unit) {
+              MaterialTheme(colorScheme = LightColors, content = content)
+          }
+          EOF
+
+          cat > app/src/main/java/com/example/notes/ui/theme/Typography.kt <<'EOF'
+          package com.example.notes.ui.theme
+
+          import androidx.compose.material3.Typography
+
+          val Typography = Typography()
+          EOF
+
+          cat > .gitignore <<'EOF'
+          *.apk
+          *.aab
+          *.dex
+          *.class
+          .gradle/
+          build/
+          **/build/
+          local.properties
+          .idea/
+          EOF
+
+      - name: Commit generated files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: generate Android Notes app source via workflow"
+            git push origin HEAD:${{ github.ref }}
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest
+
+      - name: Assemble Debug APK
+        run: ./gradlew assembleDebug
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: notes-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+
+      - name: Assemble Release AAB
+        run: ./gradlew bundleRelease
+
+      - name: Upload Release AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: notes-release-aab
+          path: app/build/outputs/bundle/release/*.aab
