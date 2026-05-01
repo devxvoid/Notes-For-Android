@@ -10,7 +10,7 @@ jobs:
   generate-and-build:
     runs-on: ubuntu-latest
     permissions:
-      contents: writee
+      contents: write
       pull-requests: write
 
     steps:
